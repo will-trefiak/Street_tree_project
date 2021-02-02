@@ -1,0 +1,380 @@
+---
+title: "Exploring Toronto's Urban Canopy"
+author: "Will Trefiak"
+date: "31/01/2021"
+output: pdf_document
+bibliograpy: "repositoty_mk2/references.bib"
+---
+
+```{r setup, include=FALSE}
+
+### Workspace Setup ###
+
+library(rgdal)
+library(tidyverse)
+library(sf)
+library(raster)
+library(opendatatoronto)
+library(ggspatial)
+library(knitr)
+library(kableExtra)
+library(janitor)
+library(data.table)
+library(dplyr)
+library(plyr)
+library(bibtex)
+
+setwd("~/Projects/repository_mk2")
+```
+
+# Abstract #
+
+This is a project developed in RMarkdown as a means of exploring the relationship between street trees in Toronto and the distribution of income brackets across the city. The exploration begins with a discussion of the importance of green
+
+# Introduction:
+
+The link between socioeconomic indicators and access to and/or usage of local green space(s) is a phenomenon that has been extensively explored by researchers across a number of disciplines. One such example of this research comes from Wolfe et al. (2020), who provide the *casus belli*, if you will, of the work done here. Wolfe et al. conduct a comprehensive literature review and keyword search on 201 studies and identify three "conceptual clusters" that each study fits into. In essence, they determined that 41% of studies fell into a category of harm reduction, 31% fell into a category of restoring capacities, and fell into a category of 3) capacity building. Simply put, they argue that green space matters a lot for our well being, and is not treated as the social determinant of public health it really is (Wolfe et al., 2020, abs). Because of it's importance to public health, equal access to green space, regardless of socioeconomic factors, should be a top priority among city officials. So, how does Toronto do in this regard?
+
+The work done here is **not** an attempt to prove any sort of correlation or between socioeconomic factors and green space exposure, but rather an exercise in exploratory data analysis to better understand which Toronto neighbourhoods are covered in trees, and more importantly, *which ones are not*. To effectively display this information, a visualization of Toronto's neighbourhood boundaries, as well as their respective exposures to greenery (measured here by street trees) will be mapped and displayed alongside economic indicators, specifically income bracket distribution, for each neighbourhood. First, however, let's discuss the data we need to make this exploratory analysis possible.
+
+# Overview of Datasets #
+
+To successfully create the visualization described above, three datasets in total were used. Two of these datasets, namely the "neighbourhood boundaries" map and the "street tree" data are both shapefiles, a form of geospatial data that project certain objects or ('shapes') onto specified coordinates. In this case, the trees and neighbourhood boundaries of Toronto. The third dataset is a standard csv file that gives a breakdown of "neighbourhood profiles" in the city of Toronto, utilizing information from the 2015 Canadian Census. You can find all necessary files to reproduce my work on github: https://github.com/will-trefiak.
+
+**Neighbourhood Boundaries Data**
+
+The neighbourhood boundaries dataset contains a list of geospatial objects with coordinates that map out Toronto's 135 neighbourhoods with a WGS-84 coordinate reference system (CRS). Because of this, while there are only 3 columns in the dataset `[ID, NAME, geography]`, the `geography` column holds a complex `sf` object that does the heavy lifting for our plotting. This dataset was the easiest to load, transform, and clean out of all the datasets used in this project. 
+
+```{r, include=FALSE}
+
+### Obtaining Resource from API. Unfortunately the file is corrupted when you scrape the data from this channel, fortunately I managed to find a non-corrupted copy that is upladed to my repository. Commented out for now until Toronto Open Data fixes the issue ###
+
+#neighbourhood_boundary_map <-
+#  opendatatoronto::search_packages("Neighbourhoods")%>%
+#  opendatatoronto::list_package_resources() %>%
+#  filter(name == "Neighbourhoods")%>%
+#  opendatatoronto::get_resource()
+
+neighbourhood_boundary_map <- st_read(dsn = "Data/toneighshape")
+```
+
+Here's a kable of the first six entries in the dataset, as you can see, they correspond with the names of Toronto neighbourhoods:
+
+``` {r, echo=FALSE}
+knitr::kable(head(neighbourhood_boundary_map), "latex", caption = 
+"Snapshot of Open Data Toronto's 'Neighbourhood Boundaries' Shapefile") %>% kable_styling(
+  latex_options = "hold_position")
+```
+
+When plotted on it's own, we can start to get an idea of how it looks:
+
+```{r, echo=FALSE}
+ggplot(data = neighbourhood_boundary_map) +
+  geom_sf(aes()) +
+  labs(title = "First graphical rendering of neighbourhood_boundary_map", 
+       xlab = "latitude", ylab = "longitude")
+```
+
+I opted to test a basic representation rather than incorporate further effects or numbers into this first iteration. In addition, from a visualization standpoint making a colored legend of every neighbourhood in the city may not be entirely useful for our purposes, as we will see in a moment. 
+
+**Street Tree Data**
+
+```{r, include=FALSE}
+###  Loading Tree Data ###
+
+raw_tree_data <-
+  opendatatoronto::search_packages("Street Tree Data") %>%
+  opendatatoronto::list_package_resources() %>%
+  filter(name == "street-tree-data-wgs84") %>%
+  opendatatoronto::get_resource()
+
+### Tree Data Cleaning. There's N/A values in the SUFFIX column that prevent plotting the data ###
+
+clean_tree_data <- subset(raw_tree_data, select = c(-SUFFIX)) %>% 
+  distinct(raw_tree_data$geometry)
+
+### Saving Tree Data in repo ###
+
+st_write(clean_tree_data, dsn = "Data/tree_data/tree_data.shp", append = FALSE)
+```
+
+```{r, include=FALSE}
+### Another path to make the tree_data object commented out and here for redundancy ###
+tree_data <- st_read(dsn = "Data/tree_data")
+```
+
+While the Toronto Open Data street tree dataset is also a geospatial object, it is slightly different in that the objects are singular points rather than complex shapes. This means that every tree object is just one single mapping coordinate on the city of Toronto's municipality map. Since this dataset was initially designed for city maintenance purposes, some cleaning and slight transformation was necessary to get it workable. Here is a kable showing the first six rows:
+
+```{r, echo=FALSE}
+knitr::kable(head(tree_data), "latex", caption = "Snapshot of Open Data Toronto's 'Street Tree' Shapefile") %>% kable_styling(latex_options = "hold_position")
+```
+
+As we can see, this dataset looks incredibly similar to our `neighbourhood_boundary_map`. Because of this, producing a combined plot of this was relatively straightforward (once I learned that 'shapefiles' are actually comprised of *four* different filetypes that must be loaded as one - a message I choose to leave in here for anyone else who gets as tragically stumped as I did).
+
+I also wanted to see if I could have success just plotting the tree objects and neighbourhood objects onto the same plot in `ggplot`. Here is a visualization of "Toronto's Canopy":
+
+```{r, echo=FALSE}
+### Plotting tree and neighbourhood shapes together ###
+ggplot() +
+  geom_sf(data = neighbourhood_boundary_map, aes()) +
+  geom_sf(data = tree_data, aes(), color = 'dark green', size = 0.0001, alpha = 0.3)+
+  labs(title = "Toronto's Canopy", subtitle = "Street_tree_data plotted onto Toronto's neighbourhood_boundary_map")
+```
+
+There are a few things I would like to note about this visualization. First, the 'canopy' that is projected is a datafied representation specifically of *trees that line city streets throughout Toronto*, and does not include city parks or areas with non-documented trees as one would see along the Don Valley Parkway. Frankly speaking, plotting relative distance to parks falls short as a measurement of neighbourhood exposure to green space in terms of mapping functionality, and areas with non-documented trees are largely parts of the city not occupied by housing. 
+
+
+**Neighbourhood Profiles Data**
+```{r, include=FALSE}
+### Loading neighbourhood data ###
+raw_neighbourhood_data <-
+  opendatatoronto::search_packages("Neighbourhood Profiles") %>%
+  opendatatoronto::list_package_resources() %>%
+  filter(name=="neighbourhood-profiles-2016-csv") %>%
+  opendatatoronto::get_resource()
+
+### Taking a more manageable slice of the dataset, namely income-focused topics and categories ###
+filtered_neighbourhood_data <- filter(raw_neighbourhood_data, (Category == "Income") & (Topic == "Income of households in 2015"))
+
+### Adjusting column names with spaces in them to make them operational ###
+names(filtered_neighbourhood_data) <- str_replace_all(names(filtered_neighbourhood_data), c(" " = "_"))
+
+### Dropping 'junk' columns ###
+subsetted_neighbourhood_data <- subset(filtered_neighbourhood_data, 
+                                       select = c(-Topic, -Data_Source, -Category)) 
+
+
+### Dropping Rows with N/A values ###
+nadrop_neighbourhood_data <- dplyr::filter(subsetted_neighbourhood_data, !grepl("n/a", Agincourt_North))
+
+### Final slice of rows I decided to take from the dataset ###
+
+neighbourhood_profiles <- slice(nadrop_neighbourhood_data, 29:48)
+
+### Saving Neighbourhood profiles into repo ###
+
+write_csv2(neighbourhood_profiles, "Data/neighbourhood_profiles.csv")
+```
+
+``` {r, include=FALSE}
+### Load dataset. Commented out because it's redundant for now, just a fallback ###
+neighbourhood_profiles <- read_csv2("Data/neighbourhood_profiles.csv")
+```   
+
+This `neighbourhood_profiles dataset` is a filtered and sliced version of the original from the Toronto Open Data portal. The original dataset is rather large and unwieldy, with 2383 entries of Statistics Canada questions related to the demographic and socioeconomic profiles of Toronto's neighbourhoods. Here is a kable of the rows I identified as being helpful in my investigation. Important to note here is that this is only showing columns 2-7 out of the 140 possible columns that each describe a neighbourhood's income distribution. 
+
+```{r, echo=FALSE}
+knitr::kable(neighbourhood_profiles[, 2:7], "latex", caption = "Snapshot of Open Data Toronto's 'Neighbourhood Profiles'.csv file") %>% kable_styling(latex_options = "hold_position") %>% kable_styling(latex_options = "scale_down")
+```
+
+As you can see, I am primarily interested in going after the relationship between tree canopy coverage and income bracket distribution Across the city. Since the median income for each neighbourhood was listed as 'n/a' in this dataset, I have developed a series of slightly less intuitive visualizations of income distribution to help continue the exploratory process along. To successfully develop a visualization, even more transformation of this `neighbourhood_profiles` data is required.
+
+```{r, warning=FALSE, include=FALSE}
+### Transposing dataframe to match the shape file for merge attempts ##
+
+transposed_neighbourhood_data <- data.frame(t(neighbourhood_profiles[-1]))
+
+### Creating a new column to replace the current index ##
+
+revalued_neighbourhood_data <- row_to_names(transposed_neighbourhood_data, row_number = 1)
+
+
+### Resetting the index and coercing the neighbourhood names into the first column as "NAME". This converts the dataframe to a data table object###
+
+setDT(revalued_neighbourhood_data, keep.rownames = "NAME")[]
+
+### Changing these characters back to a format that will be easily integrated with the shape file ###
+
+revalued_neighbourhood_data$NAME <- str_replace_all(revalued_neighbourhood_data$NAME, c("_" = " "))
+
+### Doing the opposite for the column names ###
+
+names(revalued_neighbourhood_data) <- str_replace_all(names(revalued_neighbourhood_data), c("[$]" = "u"))
+
+names(revalued_neighbourhood_data) <- str_replace_all(names(revalued_neighbourhood_data), c(" " = ""))
+
+names(revalued_neighbourhood_data) <- str_replace_all(names(revalued_neighbourhood_data), c("," = ""))
+
+### Final conversion to as.numeric performed on relevant columns ### 
+
+neighbourhood_income_datatable <- revalued_neighbourhood_data[, lapply(.SD, as.numeric), by=NAME] 
+
+neighbhourhood_income_df <- data.frame(neighbourhood_income_datatable)
+
+```
+
+```{r, include=FALSE}
+
+### Merged dataframe of GIS neighbourhood boundaries and the neighbourhood income brackets ###
+
+neighbourhood_merge_df <- merge(neighbourhood_boundary_map, neighbourhood_income_datatable, by = "NAME")
+
+
+### Saving this to my repo because it took me forever to make ###
+write_csv2(neighbourhood_merge_df, "Data/toronto_neighbourhood_income_brackets.csv")
+```
+
+After successfully transforming and cleaning the data, I merged it with the geospatial dataframe as a means of beginning to identify the geographical distribution of income brackets across the city. Here is a kable of the merge dataframe:
+
+```{r, echo=FALSE, message=FALSE}
+knitr::kable(head(neighbourhood_merge_df[, 2:7]), "latex", caption = "Snapshot of neighbourhood_merge_df") %>% kable_styling(latex_options = "hold_position") %>% kable_styling(latex_options = "scale_down")
+```
+
+This dataframe has 18 variables that are of interest to us in the plotting process. Namely, these columns each represent a given income bracket and provide a whole number count of the amount of people within each income bracket in each neighbourhood. While certainly imperfect compared the a measurement such as median neighbourhood income, this measurement also has some advantages. For one, every graph below provides us with an overview of where certain income brackets live, but also where they do not. When overlaid with the `tree_data` shapefile, the story of city street trees it's relationship to income distribution becomes more clear.
+
+# Plotting the Data #
+
+All Data was plotted using ggplot2. Compared to the previous visualizations, tree alphas have been adjusted slightly. Scales of each visualization vary because neighbourhoods have different populations. The brighter the area, the higher count of people who live there from a given income bracket.There are 18 of these visualizations in total as a means of capturing the full range of income brackets that are recorded by Statistics Canada in the raw `neighbourhood_profiles` dataset. Keep in mind, the dataset utilized here is **heavily** transformed from it's original state. As a friendly reminder, all of the transformation documentation, along with other necessary resources, are available on my github.
+
+# Visualizing the income distribution of the bottom four brackets: #
+```{r, echo=FALSE, warning=FALSE}
+
+### Visualization of bottom 4 income brackets plotted with tree density ###
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = Underu5000)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) +
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: Under $5,000CAD") + 
+  theme(axis.title = element_text(size = 10))
+  
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u5000tou9999)) +
+  geom_sf(data = tree_data, aes(), colour = "forest green", size = 0.001, alpha = 0.01) +
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $5,000- $9,999CAD") + 
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u10000tou14999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) +
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $10,000- $14,999CAD") + 
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u15000tou19999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) +
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $15,000- $19,999CAD") + 
+  theme(axis.title = element_text(size = 10))
+```
+
+# Visualizing the income distribution of the lower-mid four brackets: #
+``` {r, echo = FALSE}
+### Visualization of lower-middle income brackets plotted with tree density ###
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u20000tou24999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distrubution and Tree Coverage:", subtitle = "$20,000CAD-$24,999CAD") +
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u25000tou29999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $25,000CAD-$29,999CAD") +
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u30000tou34999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $30,000CAD-$34,999CAD") +
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u35000tou39999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $35,000CAD-$39,999CAD") +
+  theme(axis.title = element_text(size = 10))
+```
+
+# Visualizing the income distribution of the middle four brackets: #
+```{r, echo=FALSE}
+### Visualization of mid-earning income brackets plotted with tree density ###
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u40000tou44999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "$40,000CAD-$44,999CAD") +
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u45000tou49999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $40,000CAD-$49,999CAD") +
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u50000tou59999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $50,000CAD-$59,999CAD") +
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u60000tou69999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $60,000CAD-$69,999CAD") +
+  theme(axis.title = element_text(size = 10))
+```
+
+# Visualizing the income distribution of the upper-middle four brackets: #
+``` {r, echo = FALSE}
+
+### Visualization of high earning income brackets ###
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u70000tou79999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $70,000CAD-$79,999CAD") +
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u80000tou89999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $80,000CAD-$89,999CAD") +
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u90000tou99999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $90,000CAD-$99,999CAD") +
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u100000tou124999)) +
+  geom_sf(data = tree_data, aes(), colour = "forest green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $100,000CAD-$124,999CAD") +
+  theme(axis.title = element_text(size = 10))
+```
+
+# Visualizing the income distribution of the top two brackets: #
+``` {r, echo = FALSE}
+
+### Visualization of top-earning income brackets ###
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u125000tou149999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $125,000CAD-149,999CAD") +
+  theme(axis.title = element_text(size = 10))
+
+ggplot(data = neighbourhood_merge_df) +
+  geom_sf(aes(group = NAME, fill = u150000tou199999)) +
+  geom_sf(data = tree_data, aes(), colour = "green", size = 0.001, alpha = 0.01) + 
+  labs(title = "Income Bracket Distribution and Tree Coverage", subtitle = "Bracket: $150,000CAD-199,999CAD") +
+  theme(axis.title = element_text(size = 10))
+```
+
+# Analysis of Visualization #
+
+Given the range of visualizations at our disposal a couple interesting insights can certainly be drawn. The first major takeaway I get from these maps are that it seems people in the upper-middle distribution of income brackets appear to live in the most treed neighbourhoods of the city. Conversely, income brackets at the highest and lowest ends seems to have the less consistent exposure to trees. A possible confounding factor here could be the nature of downtown Toronto, which is considerably less treed than the rest of the City and at the same time experiences some of the cities' greatest levels of inequality. This inequality can be seen somewhat graphically in the visualizations above, whereby Toronto's downtown core is a smattering of dark and light shades that indicate a strong fluctuation in income bracket distribution. 
+
+Overall, however, a slight trend can be seen as you scroll through the visualizations, in that as the income brackets increase, the shaded polygons in the treed areas become lighter, representing a higher proportion of people with that income in that specific area. With this being said, it is important to note that this is an exploratory analysis only, but it is quite interesting to see that, in general, exposure to the treed streets of Toronto is a privilege that only those more well off can seem to afford. 
+
+# Reflection and Limitations of Visualization and Process #
+
+While there is a lot in this analysis I am satisfied with, there is an equal amount that I would love input on or guidance with. The primary issue I had was being unable to locate a dataset that contained the household median income for every Toronto neighbourhood, which would have made the transformation and mapping process far less arduous. With this being said, however, I do believe the neighbourhood income brackets dataset I made in the process of developing this analysis is ripe for further exploration beyond the context of trees. Stemming from this, I would be remiss if I did not mention the challenges that stemmed from treating income brackets as columnar elements in the mapping process. In brief, because of limitations in both datasets, I was forced to merge and subsequently plot a dataframe that was less than optimal; I was unable to change the fill colour of the blue gradient you see, and additionally a class transformation of the income brackets from `<chr>` to `<number>` created the missing neighbourhood values that can be seen. As I would still consider myself a bit of a noob at r, any help in addressing these issues would be greatly appreciated :)
+
+# References #
+```{r, echo=FALSE}
+
+# I was unable to figure out how to properly add references to the YAML/Metadata after I created the rmd file, and was too worried about transferring all of my code over to another document to make a fix for my citations. As a reuslt, I utilized a write.bib function as a placeholder for when I update the project. #
+
+write.bib(c("tidyverse", "rgdal", "raster", "opendatatoronto", "knitr", "kableExtra", "janitor", "data.table",
+            "dplyr", "plyr", "bibtex"), "references.bib")
+
